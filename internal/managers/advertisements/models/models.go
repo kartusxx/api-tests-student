@@ -37,3 +37,12 @@ type AdvertisementsList struct {
 	NextCursor string          `json:"next_cursor"`
 	Total      int             `json:"total"`
 }
+
+// описывает параметры создания объявления
+type CreateAdvertisementRequest struct {
+	Title       string
+	Description string
+	Price       *float64
+	Quantity    *int
+	PhotoPaths  []string
+}
