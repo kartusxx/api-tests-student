@@ -1,7 +1,10 @@
 package createAdvertisement
 
 import (
+	"fmt"
+	"net/http"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,6 +27,22 @@ const (
 	adPrice       = 1500.5
 	adQuantity    = 3
 	photoFileName = "photo.png"
+
+	maxTitleLength = 50
+	maxPhotosCount = 3
+	negativePrice  = -5.0
+
+	errInvalidRequest = "invalid_request"
+	errUnauthorized   = "unauthorized"
+
+	msgTitleRequired    = "title is required"
+	msgPriceOutOfRange  = "price must be between 0 and 1000000 inclusive"
+	msgPhotoRequired    = "at least 1 photo is required"
+	msgTooManyPhotos    = "maximum 3 photos allowed"
+	msgAuthHeaderNeeded = "Authorization header required"
+	msgInvalidOrExpired = "Invalid or expired token"
+
+	wrongAuthValue = "incorrect_token"
 )
 
 type TestSuite struct {
@@ -97,4 +116,89 @@ func (s *TestSuite) TestCreateAdvertisementPositive() {
 		require.Len(s.T(), photos, 1, "Количество загруженных фотографий не совпадает")
 		require.NotEmpty(s.T(), photos[0].URL, "У фотографии пустой url")
 	})
+}
+
+// Negative: создание объявления с некорректными параметрами возвращает 400 и понятное сообщение
+func (s *TestSuite) TestCreateAdvertisementInvalidParams() {
+	validRequest := func() adModels.CreateAdvertisementRequest {
+		return adModels.CreateAdvertisementRequest{
+			Title:       utils.UniqueTitle(adTitlePrefix),
+			Description: adDescription,
+			PhotoPaths:  []string{s.photoPath},
+		}
+	}
+
+	cases := []struct {
+		name            string
+		modify          func(req *adModels.CreateAdvertisementRequest)
+		expectedMessage string
+	}{
+		{
+			name:            "пустой title",
+			modify:          func(req *adModels.CreateAdvertisementRequest) { req.Title = "" },
+			expectedMessage: msgTitleRequired,
+		},
+		{
+			name:            "отрицательная цена",
+			modify:          func(req *adModels.CreateAdvertisementRequest) { req.Price = utils.Ptr(negativePrice) },
+			expectedMessage: msgPriceOutOfRange,
+		},
+		{
+			name: "слишком длинный title",
+			modify: func(req *adModels.CreateAdvertisementRequest) {
+				req.Title = strings.Repeat("а", maxTitleLength+1)
+			},
+			expectedMessage: fmt.Sprintf("title must not exceed %d characters provided %d", maxTitleLength, maxTitleLength+1),
+		},
+		{
+			name:            "нет фотографий",
+			modify:          func(req *adModels.CreateAdvertisementRequest) { req.PhotoPaths = nil },
+			expectedMessage: msgPhotoRequired,
+		},
+		{
+			name: "больше трёх фотографий",
+			modify: func(req *adModels.CreateAdvertisementRequest) {
+				req.PhotoPaths = make([]string, maxPhotosCount+1)
+				for i := range req.PhotoPaths {
+					req.PhotoPaths[i] = s.photoPath
+				}
+			},
+			expectedMessage: msgTooManyPhotos,
+		},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			request := validRequest()
+			tc.modify(&request)
+
+			apiError := advertisements.CreateAdvertisementExpectError(s.T(), s.loginData.Token, request, http.StatusBadRequest)
+			assertions.RequireAPIError(s.T(), apiError, errInvalidRequest, tc.expectedMessage)
+		})
+	}
+}
+
+// Negative: создание объявления без токена или с неверным токеном возвращает 401
+func (s *TestSuite) TestCreateAdvertisementUnauthorized() {
+	request := adModels.CreateAdvertisementRequest{
+		Title:       utils.UniqueTitle(adTitlePrefix),
+		Description: adDescription,
+		PhotoPaths:  []string{s.photoPath},
+	}
+
+	cases := []struct {
+		name            string
+		token           string
+		expectedMessage string
+	}{
+		{"без токена", "", msgAuthHeaderNeeded},
+		{"неверный токен", wrongAuthValue, msgInvalidOrExpired},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			apiError := advertisements.CreateAdvertisementExpectError(s.T(), tc.token, request, http.StatusUnauthorized)
+			assertions.RequireAPIError(s.T(), apiError, errUnauthorized, tc.expectedMessage)
+		})
+	}
 }
