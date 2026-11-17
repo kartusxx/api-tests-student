@@ -3,7 +3,6 @@ package createAdvertisement
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"testing"
 
@@ -59,8 +58,8 @@ func TestSuiteRun(t *testing.T) {
 func (s *TestSuite) SetupSuite() {
 	base.SetupSuite()
 
-	base.Precondition("Авторизация пользователя с кредами из переменных окружения и получение его параметров")
-	s.loginData = auth.Login(s.T(), os.Getenv("TEST_LOGIN"), os.Getenv("TEST_PASSWORD"))
+	base.Precondition("Регистрация отдельного пользователя для тестов со случайным email")
+	s.loginData = auth.RegisterRandomUser(s.T())
 }
 
 func (s *TestSuite) TearDownSuite() {
